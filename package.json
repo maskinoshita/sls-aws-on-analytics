@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "serverless-aws-nested-stacks": "^0.1.2",
+    "serverless-s3-sync": "^3.0.0"
+  }
+}

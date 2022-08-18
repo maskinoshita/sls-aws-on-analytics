@@ -1,0 +1,133 @@
+service: sls-aws-on-analytics
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+# you can overwrite defaults here
+  # stage: dev
+  region: ap-northeast-1
+
+package:
+  patterns:
+    - '!nested-stacks/**'
+    - '!data/**'
+
+custom:
+  UNIQ_PREFIX: mk
+  DATA_BUCKET: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-bucket
+  DATA_BUCKET_ARN:
+    Fn::Join:
+      - ""
+      - - "arn:aws:s3:::"
+        - !Ref DataBucket
+  STREAM_NAME: analytics-workshop-stream
+  s3Sync:
+    - bucketName: ${self:custom.DATA_BUCKET}
+      localDir: data/bucket
+  nested-stacks:
+    location: nested-stacks
+    stacks:
+      - id: kinesisdatagenerator
+        template: kinesis-data-generator.json
+        enabled: true
+        timeout: 60
+        parameters:
+          Username: admin
+          Password: 8P5J25Zk
+
+
+# functions:
+#   hello:
+#     handler: handler.hello
+
+# you can add CloudFormation resource templates here
+resources:
+  Resources:
+    DataBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.DATA_BUCKET}
+    Firehose:
+      Type: AWS::KinesisFirehose::DeliveryStream
+      Properties:
+        DeliveryStreamName: ${self:custom.STREAM_NAME}
+        DeliveryStreamType: DirectPut
+        S3DestinationConfiguration:
+          BucketArn: ${self:custom.DATA_BUCKET_ARN}
+          Prefix: 'data/raw/'
+          BufferingHints:
+            SizeInMBs: 1
+            IntervalInSeconds: 60
+          RoleArn: !GetAtt FirehoseRole.Arn
+    FirehoseRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:custom.UNIQ_PREFIX}-FirehoseRole
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Action: sts:AssumeRole
+              Effect: Allow
+              Principal:
+                Service: firehose.amazonaws.com
+              Policies:
+        Policies:
+          - PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action:
+                    - glue:GetTable
+                    - glue:GetTableVersion
+                    - glue:GetTableVersions
+                  Effect: Allow
+                  Resource: '*'
+                - Action:
+                    - s3:AbortMultipartUpload
+                    - s3:GetBucketLocation
+                    - s3:GetObject
+                    - s3:ListBucket
+                    - s3:ListBucketMultipartUploads
+                    - s3:PutObject
+                  Effect: Allow
+                  Resource:
+                    - ${self:custom.DATA_BUCKET_ARN}
+                    - Fn::Join:
+                        - ""
+                        - - ${self:custom.DATA_BUCKET_ARN}
+                          - "/*"
+                - Action:
+                    - kinesis:DescribeStream
+                    - kinesis:GetShardIterator
+                    - kinesis:GetRecords
+                    - kinesis:ListShards
+                  Effect: Allow
+                  Resource:
+                    - Fn::Join:
+                        - ""
+                        - - "arn:aws:kinesis:"
+                          - !Sub "${AWS::Region}:${AWS::AccountId}:stream/"
+                          - ${self:custom.STREAM_NAME}
+                - Action:
+                    - logs:PutLogEvents
+                  Effect: Allow
+                  Resource:
+                    - Fn::Join:
+                        - ""
+                        - - "arn:aws:logs:"
+                          - !Sub "${AWS::Region}:${AWS::AccountId}:log-group:"
+                          - "/aws/kinesisfirehose/"
+                          - ${self:custom.DATA_BUCKET}
+                          - ":log-stream:*"
+            PolicyName: firehose-delivery-role
+   
+  Outputs:
+    KinesisDataGeneratorUrl:
+      Description: "KinesisDataGeneratorUrl"
+      Value: !GetAtt kinesisdatagenerator.Outputs.KinesisDataGeneratorUrl
+
+plugins:
+  - serverless-aws-nested-stacks
+  - serverless-s3-sync
