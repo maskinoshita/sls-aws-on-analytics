@@ -71,7 +71,7 @@ resources:
     FirehoseAndAnalyticsRole:
       Type: AWS::IAM::Role
       Properties:
-        RoleName: ${self:custom.UNIQ_PREFIX}-FirehoseRole
+        RoleName: AnalyticsWorkshopFirehoseRole
         AssumeRolePolicyDocument:
           Version: '2012-10-17'
           Statement:
@@ -98,7 +98,50 @@ resources:
                     - !Sub "arn:aws:s3:::${DataBucket}"
                     - !Sub "arn:aws:s3:::${DataBucket}/*"
             PolicyName: firehose-analytics-role
-   
+    #2 
+    GlueRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: AnalyticsWorkshopGlueRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Action: sts:AssumeRole
+              Effect: Allow
+              Principal:
+                Service: glue.amazonaws.com
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonS3FullAccess
+          - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+    GlueDatabase:
+      Type: AWS::Glue::Database
+      Properties: 
+        CatalogId: !Ref AWS::AccountId
+        DatabaseInput:
+          Name: analyticsworkshopdb
+    GlueCrawler: # https://aws.amazon.com/jp/premiumsupport/knowledge-center/glue-crawler-multiple-tables/
+      Type: AWS::Glue::Crawler
+      Properties:
+        Name: AnalyticsworkshopCrawler
+        Role: !GetAtt GlueRole.Arn
+        DatabaseName: !Ref GlueDatabase
+        Targets:
+          S3Targets:
+            - Path: !Sub "s3://${DataBucket}/data/"
+        SchemaChangePolicy:
+          UpdateBehavior: UPDATE_IN_DATABASE
+          DeleteBehavior: LOG
+    AthenaPrimaryWorkGroup:
+      Type: AWS::Athena::WorkGroup
+      Properties:
+        Name: AnalyticsWorkshop
+        State: ENABLED
+        RecursiveDeleteOption: true
+        WorkGroupConfiguration:
+          EnforceWorkGroupConfiguration: true
+          ResultConfiguration:
+            OutputLocation: !Sub "s3://${DataBucket}"
+
   Outputs:
     KinesisDataGeneratorUrl:
       Description: "KinesisDataGeneratorUrl"
