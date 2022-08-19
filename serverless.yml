@@ -18,11 +18,6 @@ package:
 custom:
   UNIQ_PREFIX: mk
   DATA_BUCKET: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-bucket
-  DATA_BUCKET_ARN:
-    Fn::Join:
-      - ""
-      - - "arn:aws:s3:::"
-        - !Ref DataBucket
   STREAM_NAME: analytics-workshop-stream
   s3Sync:
     - bucketName: ${self:custom.DATA_BUCKET}
@@ -50,19 +45,29 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.DATA_BUCKET}
+    DataStream:
+      Type: AWS::Kinesis::Stream
+      Properties:
+        Name: ${self:custom.STREAM_NAME}
+        ShardCount: 2
+        StreamModeDetails:
+          StreamMode: PROVISIONED
     Firehose:
       Type: AWS::KinesisFirehose::DeliveryStream
       Properties:
-        DeliveryStreamName: ${self:custom.STREAM_NAME}
-        DeliveryStreamType: DirectPut
+        DeliveryStreamName: delivery-${self:custom.STREAM_NAME}
+        DeliveryStreamType: KinesisStreamAsSource
+        KinesisStreamSourceConfiguration:
+          KinesisStreamARN: !GetAtt DataStream.Arn
+          RoleArn: !GetAtt FirehoseAndAnalyticsRole.Arn
         S3DestinationConfiguration:
-          BucketArn: ${self:custom.DATA_BUCKET_ARN}
+          BucketArn: !Sub "arn:aws:s3:::${DataBucket}"
           Prefix: 'data/raw/'
           BufferingHints:
             SizeInMBs: 1
             IntervalInSeconds: 60
-          RoleArn: !GetAtt FirehoseRole.Arn
-    FirehoseRole:
+          RoleArn: !GetAtt FirehoseAndAnalyticsRole.Arn
+    FirehoseAndAnalyticsRole:
       Type: AWS::IAM::Role
       Properties:
         RoleName: ${self:custom.UNIQ_PREFIX}-FirehoseRole
@@ -73,17 +78,13 @@ resources:
               Effect: Allow
               Principal:
                 Service: firehose.amazonaws.com
-              Policies:
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonKinesisFullAccess
+          - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
         Policies:
           - PolicyDocument:
               Version: '2012-10-17'
               Statement:
-                - Action:
-                    - glue:GetTable
-                    - glue:GetTableVersion
-                    - glue:GetTableVersions
-                  Effect: Allow
-                  Resource: '*'
                 - Action:
                     - s3:AbortMultipartUpload
                     - s3:GetBucketLocation
@@ -93,35 +94,9 @@ resources:
                     - s3:PutObject
                   Effect: Allow
                   Resource:
-                    - ${self:custom.DATA_BUCKET_ARN}
-                    - Fn::Join:
-                        - ""
-                        - - ${self:custom.DATA_BUCKET_ARN}
-                          - "/*"
-                - Action:
-                    - kinesis:DescribeStream
-                    - kinesis:GetShardIterator
-                    - kinesis:GetRecords
-                    - kinesis:ListShards
-                  Effect: Allow
-                  Resource:
-                    - Fn::Join:
-                        - ""
-                        - - "arn:aws:kinesis:"
-                          - !Sub "${AWS::Region}:${AWS::AccountId}:stream/"
-                          - ${self:custom.STREAM_NAME}
-                - Action:
-                    - logs:PutLogEvents
-                  Effect: Allow
-                  Resource:
-                    - Fn::Join:
-                        - ""
-                        - - "arn:aws:logs:"
-                          - !Sub "${AWS::Region}:${AWS::AccountId}:log-group:"
-                          - "/aws/kinesisfirehose/"
-                          - ${self:custom.DATA_BUCKET}
-                          - ":log-stream:*"
-            PolicyName: firehose-delivery-role
+                    - !Sub "arn:aws:s3:::${DataBucket}"
+                    - !Sub "arn:aws:s3:::${DataBucket}/*"
+            PolicyName: firehose-analytics-role
    
   Outputs:
     KinesisDataGeneratorUrl:
