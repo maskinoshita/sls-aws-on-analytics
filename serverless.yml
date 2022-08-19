@@ -22,6 +22,7 @@ custom:
   s3Sync:
     - bucketName: ${self:custom.DATA_BUCKET}
       localDir: data/bucket
+      deleteRemoved: false
   nested-stacks:
     location: nested-stacks
     stacks:
