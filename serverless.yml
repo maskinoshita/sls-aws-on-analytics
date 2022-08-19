@@ -33,7 +33,15 @@ custom:
         parameters:
           Username: admin
           Password: 8P5J25Zk
-
+      - id: gluesagemaker
+        template: glue_sagemaker_notebook.yaml
+        enabled: true
+        timeout: 1200
+        parameters:
+          NotebookName: workshop-notebook
+          DevEndpointName: workshop-dev-endpoint
+          GlueServiceRoleARN: !GetAtt GlueRole.Arn
+          NumberOfWorkers: 2
 
 # functions:
 #   hello:
@@ -119,7 +127,7 @@ resources:
         CatalogId: !Ref AWS::AccountId
         DatabaseInput:
           Name: analyticsworkshopdb
-    GlueCrawler: # https://aws.amazon.com/jp/premiumsupport/knowledge-center/glue-crawler-multiple-tables/
+    GlueCrawler:
       Type: AWS::Glue::Crawler
       Properties:
         Name: AnalyticsworkshopCrawler
