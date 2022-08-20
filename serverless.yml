@@ -14,11 +14,13 @@ package:
   patterns:
     - '!nested-stacks/**'
     - '!data/**'
+    - '!images/**'
 
 custom:
   UNIQ_PREFIX: mk
   DATA_BUCKET: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-bucket
   STREAM_NAME: analytics-workshop-stream
+  KDA_APP_NAME: kda-stream-app
   s3Sync:
     - bucketName: ${self:custom.DATA_BUCKET}
       localDir: data/bucket
@@ -35,7 +37,7 @@ custom:
           Password: 8P5J25Zk
       - id: gluesagemaker
         template: glue_sagemaker_notebook.yaml
-        enabled: true
+        enabled: false
         timeout: 1200
         parameters:
           NotebookName: workshop-notebook
@@ -86,7 +88,9 @@ resources:
             - Action: sts:AssumeRole
               Effect: Allow
               Principal:
-                Service: firehose.amazonaws.com
+                Service:
+                  - firehose.amazonaws.com
+                  - kinesisanalytics.amazonaws.com
         ManagedPolicyArns:
           - arn:aws:iam::aws:policy/AmazonKinesisFullAccess
           - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
@@ -149,6 +153,94 @@ resources:
           EnforceWorkGroupConfiguration: true
           ResultConfiguration:
             OutputLocation: !Sub "s3://${DataBucket}"
+    # 4
+    GlueRawStreamTable:
+      Type: AWS::Glue::Table
+      Properties:
+        CatalogId: !Ref AWS::AccountId
+        DatabaseName: !Ref GlueDatabase
+        TableInput:
+          Name: raw_stream
+          TableType: EXTERNAL_TABLE
+          Parameters:
+            classification: json
+            kinesisanalytics.proctime: proctime
+          StorageDescriptor:
+            InputFormat: org.apache.hadoop.mapred.TextInputFormat
+            OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+            Columns:
+              - Name: uuid
+                Type: string
+              - Name: device_ts
+                Type: timestamp
+              - Name: device_id
+                Type: int
+              - Name: device_temp
+                Type: int
+              - Name: track_id
+                Type: int
+              - Name: activity_type
+                Type: string
+            Location: !Ref DataStream
+            SerdeInfo:
+              Parameters:
+                paths: "activity_type,device_id,device_temp,device_ts,track_id,uuid"
+              SerializationLibrary: org.openx.data.jsonserde.JsonSerDe
+            Parameters: 
+              # streamARN: !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${DataStream}"
+              endpointUrl: !Sub "https://kinesis.${AWS::Region}.amazonaws.com"
+              streamName: !Ref DataStream
+              typeOfData: kinesis
+    KDAZeppelinFlinkNotebook:
+      Type: AWS::KinesisAnalyticsV2::Application
+      Properties:
+        RuntimeEnvironment: ZEPPELIN-FLINK-2_0
+        ApplicationName: ${self:custom.KDA_APP_NAME}
+        ApplicationMode: INTERACTIVE
+        ApplicationConfiguration:
+          FlinkApplicationConfiguration:
+            ParallelismConfiguration:
+              ConfigurationType: CUSTOM
+              Parallelism: 4
+              ParallelismPerKPU: 1
+          ZeppelinApplicationConfiguration:
+            CatalogConfiguration:
+              GlueDataCatalogConfiguration:
+                DatabaseARN: !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/${GlueDatabase}"
+            # Extra Jar need: Could not find any factory for identifier 'kinesis' that implements 'org.apache.flink.table.factories.DynamicTableFactory' in the classpath.
+            # see: https://docs.aws.amazon.com/kinesisanalytics/latest/java/analytics-java-api.pdf
+            #   Connectors and dependencies
+            # see: https://github.com/awslabs/amazon-kinesis-connector-flink
+            CustomArtifactsConfiguration:
+              - ArtifactType: DEPENDENCY_JAR
+                MavenReference:
+                  GroupId: org.apache.flink
+                  ArtifactId: flink-sql-connector-kinesis_2.12
+                  Version: 1.13.2
+        ServiceExecutionRole: !GetAtt FirehoseAndAnalyticsRole.Arn
+    KDAReferenceDataSource:
+      Type: AWS::KinesisAnalyticsV2::ApplicationReferenceDataSource
+      Properties:
+        # ApplicationName: !Ref KDAZeppelinFlinkNotebook
+        ApplicationName: ${self:custom.KDA_APP_NAME}
+        ReferenceDataSource:
+          TableName: track_list
+          ReferenceSchema:
+            RecordColumns:
+              - Name: track_id
+                SqlType: Int
+              - Name: track_name
+                SqlType: VARCHAR(255)
+              - Name: artist_name
+                SqlType: VARCHAR(255)
+            RecordFormat:
+              RecordFormatType: JSON
+              MappingParameters:
+                JSONMappingParameters:
+                  RecordRowPath: $
+          S3ReferenceDataSource:
+            BucketARN: !GetAtt DataBucket.Arn
+            FileKey: /data/reference_data/tracks_list.json
 
   Outputs:
     KinesisDataGeneratorUrl:
