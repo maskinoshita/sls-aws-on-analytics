@@ -210,37 +210,19 @@ resources:
             # Extra Jar need: Could not find any factory for identifier 'kinesis' that implements 'org.apache.flink.table.factories.DynamicTableFactory' in the classpath.
             # see: https://docs.aws.amazon.com/kinesisanalytics/latest/java/analytics-java-api.pdf
             #   Connectors and dependencies
-            # see: https://github.com/awslabs/amazon-kinesis-connector-flink
             CustomArtifactsConfiguration:
               - ArtifactType: DEPENDENCY_JAR
                 MavenReference:
                   GroupId: org.apache.flink
                   ArtifactId: flink-sql-connector-kinesis_2.12
                   Version: 1.13.2
+          EnvironmentProperties:
+            PropertyGroups:
+              - PropertyGroupId: env
+                PropertyMap:
+                  Bucket: !Sub "s3://${DataBucket}"
+                  Path: "/data/reference_data/"
         ServiceExecutionRole: !GetAtt FirehoseAndAnalyticsRole.Arn
-    KDAReferenceDataSource:
-      Type: AWS::KinesisAnalyticsV2::ApplicationReferenceDataSource
-      Properties:
-        # ApplicationName: !Ref KDAZeppelinFlinkNotebook
-        ApplicationName: ${self:custom.KDA_APP_NAME}
-        ReferenceDataSource:
-          TableName: track_list
-          ReferenceSchema:
-            RecordColumns:
-              - Name: track_id
-                SqlType: Int
-              - Name: track_name
-                SqlType: VARCHAR(255)
-              - Name: artist_name
-                SqlType: VARCHAR(255)
-            RecordFormat:
-              RecordFormatType: JSON
-              MappingParameters:
-                JSONMappingParameters:
-                  RecordRowPath: $
-          S3ReferenceDataSource:
-            BucketARN: !GetAtt DataBucket.Arn
-            FileKey: /data/reference_data/tracks_list.json
 
   Outputs:
     KinesisDataGeneratorUrl:
