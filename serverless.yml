@@ -10,6 +10,13 @@ provider:
   # stage: dev
   region: ap-northeast-1
 
+iam:
+  role:
+    statements:
+  environment:
+      WEBSOCKET_ENDPOINT: !Sub "wss://${WebsocketsApi}.execute-api.${AWS:Region}.amazonaws.com/${sls:stage}"
+      CONNECTION_TABLE_NAME: !Ref ConnectionTable
+
 package:
   patterns:
     - '!nested-stacks/**'
@@ -21,6 +28,9 @@ custom:
   DATA_BUCKET: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-bucket
   STREAM_NAME: analytics-workshop-stream
   KDA_APP_NAME: kda-stream-app
+  CONNECTION_TABLE_NAME: !Ref ConnectionTable
+  WEBSITE_BUCKET_NAME: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-website
+  WEBSITE_ORIGIN: "http://${self:custom.WEBSITE_BUCKET_NAME}.s3-website-${aws:region}.amazonaws.com"
   s3Sync:
     - bucketName: ${self:custom.DATA_BUCKET}
       localDir: data/bucket
@@ -223,6 +233,42 @@ resources:
                   Bucket: !Sub "s3://${DataBucket}"
                   Path: "/data/reference_data/"
         ServiceExecutionRole: !GetAtt FirehoseAndAnalyticsRole.Arn
+    # Extra
+    ConnectionTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: connections
+        AttributeDefinitions:
+          - AttributeName: connectionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+    WebSiteBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.WEBSITE_BUCKET_NAME}
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+    StaticSiteS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref WebSiteBucket
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action:
+                - s3:GetObject
+              Resource: !Sub "arn:aws:s3:::${WebSiteBucket}/*"
 
   Outputs:
     KinesisDataGeneratorUrl:
