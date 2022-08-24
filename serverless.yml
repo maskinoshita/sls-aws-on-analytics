@@ -16,12 +16,15 @@ iam:
   environment:
       WEBSOCKET_ENDPOINT: !Sub "wss://${WebsocketsApi}.execute-api.${AWS:Region}.amazonaws.com/${sls:stage}"
       CONNECTION_TABLE_NAME: !Ref ConnectionTable
+      DATABASE_NAME: !Ref GlueDatabase
+      WORKGROUP_NAME: !Ref AthenaPrimaryWorkGroup
 
 package:
   patterns:
     - '!nested-stacks/**'
     - '!data/**'
     - '!images/**'
+    - '!static/**'
 
 custom:
   UNIQ_PREFIX: mk
@@ -29,11 +32,14 @@ custom:
   STREAM_NAME: analytics-workshop-stream
   KDA_APP_NAME: kda-stream-app
   CONNECTION_TABLE_NAME: !Ref ConnectionTable
-  WEBSITE_BUCKET_NAME: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-website
-  WEBSITE_ORIGIN: "http://${self:custom.WEBSITE_BUCKET_NAME}.s3-website-${aws:region}.amazonaws.com"
+  WEBSITE_BUCKET: ${self:custom.UNIQ_PREFIX}-20220819-analytics-workshop-website
+  WEBSITE_ORIGIN: "http://${self:custom.WEBSITE_BUCKET}.s3-website-${aws:region}.amazonaws.com"
   s3Sync:
     - bucketName: ${self:custom.DATA_BUCKET}
       localDir: data/bucket
+      deleteRemoved: false
+    - bucketName: ${self:custom.WEBSITE_BUCKET}
+      localDir: static
       deleteRemoved: false
   nested-stacks:
     location: nested-stacks
@@ -55,9 +61,29 @@ custom:
           GlueServiceRoleARN: !GetAtt GlueRole.Arn
           NumberOfWorkers: 2
 
-# functions:
-#   hello:
-#     handler: handler.hello
+functions:
+  handleUpdate:
+    handler: handler.handleUpdate
+    events:
+      - eventBridge: # Batch Update Timing
+          enabled: false
+          pattern:
+            source: aws.glue
+            detail-type: Glue Data Catalog Table State Change
+            detail:
+              databaseName: !Ref GlueDatabase
+              tableName: processed-data2
+
+  connect:
+    handler: handler.connect
+    events:
+      - websocket:
+          route: $connect
+  disconnect:
+    handler: handler.disconnect
+    events:
+      - websocket:
+          route: $disconnect
 
 # you can add CloudFormation resource templates here
 resources:
@@ -120,6 +146,16 @@ resources:
                     - !Sub "arn:aws:s3:::${DataBucket}"
                     - !Sub "arn:aws:s3:::${DataBucket}/*"
             PolicyName: firehose-analytics-role
+          - PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Action:
+                    - lambda:InvokeFunction
+                    - lambda:GetFunctionConfiguration
+                  Effect: Allow
+                  Reousrce:
+                    - !GetAtt HandleUpdateLambdaFunction.Arn
+
     #2 
     GlueRole:
       Type: AWS::IAM::Role
@@ -253,7 +289,7 @@ resources:
     WebSiteBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:custom.WEBSITE_BUCKET_NAME}
+        BucketName: ${self:custom.WEBSITE_BUCKET}
         AccessControl: PublicRead
         WebsiteConfiguration:
           IndexDocument: index.html
