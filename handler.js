@@ -2,6 +2,7 @@
 
 const AWS = require('aws-sdk');
 const Athena = new AWS.Athena({});
+const retry = require('async-retry');
 
 const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 const MANAGEMENT_ENDPOINT = WEBSOCKET_ENDPOINT.replace('wss', 'https');
@@ -134,6 +135,8 @@ const handleUpdate = async (event) => {
   //       statusCode: 500
   //   };
   // }
+  console.log(event);
+  console.log({ WEBSOCKET_ENDPOINT, MANAGEMENT_ENDPOINT, CONNECTION_TABLE_NAME, DATABASE_NAME, WORKGROUP_NAME });
 }
 
 const connect = async (event) => {

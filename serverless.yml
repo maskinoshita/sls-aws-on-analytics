@@ -10,14 +10,20 @@ provider:
   # stage: dev
   region: ap-northeast-1
 
-iam:
-  role:
-    statements:
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "dynamodb:*"
+          Resource:
+            - !GetAtt ConnectionTable.Arn
+  
   environment:
-      WEBSOCKET_ENDPOINT: !Sub "wss://${WebsocketsApi}.execute-api.${AWS:Region}.amazonaws.com/${sls:stage}"
-      CONNECTION_TABLE_NAME: !Ref ConnectionTable
-      DATABASE_NAME: !Ref GlueDatabase
-      WORKGROUP_NAME: !Ref AthenaPrimaryWorkGroup
+    WEBSOCKET_ENDPOINT: !Sub "wss://${WebsocketsApi}.execute-api.${aws:region}.amazonaws.com/${sls:stage}"
+    CONNECTION_TABLE_NAME: !Ref ConnectionTable
+    DATABASE_NAME: !Ref GlueDatabase
+    WORKGROUP_NAME: !Ref AthenaPrimaryWorkGroup
 
 package:
   patterns:
@@ -66,13 +72,19 @@ functions:
     handler: handler.handleUpdate
     events:
       - eventBridge: # Batch Update Timing
-          enabled: false
+          enabled: true
           pattern:
-            source: aws.glue
-            detail-type: Glue Data Catalog Table State Change
+            source:
+              - aws.glue
+            detail-type:
+              - Glue Data Catalog Table State Change
             detail:
-              databaseName: !Ref GlueDatabase
-              tableName: processed-data2
+              tableName:
+                - processed-data2
+              typeofChange:
+                - UpdateTable
+              databaseName:
+                - !Ref GlueDatabase
 
   connect:
     handler: handler.connect
@@ -153,8 +165,9 @@ resources:
                     - lambda:InvokeFunction
                     - lambda:GetFunctionConfiguration
                   Effect: Allow
-                  Reousrce:
+                  Resource:
                     - !GetAtt HandleUpdateLambdaFunction.Arn
+            PolicyName: invoke-handle-update-lambda-role
 
     #2 
     GlueRole:
