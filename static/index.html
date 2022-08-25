@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.min.css"/>
+    <title>Lambda Architecture Example</title>
+</head>
+<body>
+    <main class="container">
+        <h1>集計</h1>
+        <div id="chart"></div>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script type="text/javascript">
+        const WEBSOCKET_URL = 'wss://9i45xxmud2.execute-api.ap-northeast-1.amazonaws.com/dev';
+
+        let batchData = null;
+        let streamData = null;
+
+        let socket = null;
+        openSocket();
+
+        let chart = null;
+
+        const category = ['Running', 'Working', 'Walking', 'Traveling', 'Sitting'];
+
+        const updateChart = () => {
+            let batchSeries = convertData(batchData);
+            let chartOptions = convertToApexOptions(batchSeries);
+            if(chart == null) {
+                chart = new ApexCharts(document.querySelector("#chart"), chartOptions);
+                chart.render();
+            } else {
+                chart.updateOptions(chartOptions);
+            }
+        }
+
+        const convertData = (data) => {
+            let series = {
+                idMap: {},
+                labels: [],
+                values: {},
+            };
+            category.forEach(cat => series.values[cat] = []);
+
+            for (let [track_id, track_name, artist_name, activity_type, cnt] of data.data) {
+                if (series.idMap[track_id] == null) {
+                    let index = series.labels.length;
+                    series.idMap[track_id] = index;
+                    series.labels.push([track_name, `(${artist_name})`]);
+                    // series.labels.push(track_id);
+                    Object.keys(series.values).forEach((cat) => {
+                        series.values[cat].push(0);
+                    });
+                }
+                series.values[activity_type][series.idMap[track_id]] = cnt;
+            }
+            return series;
+        };
+
+        const convertToApexOptions = (series) => {
+            let s = [];
+            category.forEach(cat => s.push({ name: cat, data: series.values[cat] }));
+            let options = {
+                series: s,
+                chart: {
+                    type: 'bar',
+                    stacked: true,
+                    toolbar: {
+                        show: false
+                    },
+                    zoom: {
+                        enabled: false
+                    }
+                },
+                legend: {
+                    position: 'top',
+                    offsetY: 3
+                },
+                xaxis: {
+                    type: 'category',
+                    categories: series.labels,
+                    labels: {
+                        rotate: -90,
+                        rotateAlways: true,
+                        style: {
+                            fontSize: '10px',
+                            color: '#fff',
+                        }
+                    }
+                }
+            }
+            return options;
+        };
+
+        function openSocket() {
+            socket = new WebSocket(WEBSOCKET_URL);
+            socket.addEventListener('open', (event) => {
+                console.log('Connected.');
+                openSocket.retryCount = 0;
+            });
+
+            socket.addEventListener('message', (event) => {
+                console.log(event);
+                batchData = JSON.parse(event.data);
+                updateChart();
+            });
+
+            socket.addEventListener('close', (event) => {
+                openSocket.retryCount = (openSocket.retryCount === undefined)? 1 : openSocket.retryCount + 1;
+                if (openSocket.retryCount < 5) {
+                    console.log('Try reconnect.');
+                    setTimeout(() => {
+                        openSocket();
+                    }, 1000);
+                } else {
+                    console.log('Retry count reached 5. Abandoned.');
+                }
+            });
+
+            socket.addEventListener('error', (event) => {
+                console.log('Error', err.message, 'Closing Socket.');
+                // disable reconnect
+                socket.addEventListener('close', (event) => {});
+                socket.close();
+            });
+        };
+
+         // gently close ws when leaving page
+        window.addEventListener('beforeunload', () => {
+            if (socket) {
+                // disable reconnect
+                socket.addEventListener('close', (event) => {});
+                socket.close(); 
+            }
+        });
+    </script>
+</body>
+</html>

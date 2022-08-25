@@ -13,11 +13,19 @@ provider:
   iam:
     role:
       statements:
-        - Effect: "Allow"
+        - Effect: Allow
           Action:
-            - "dynamodb:*"
+            - dynamodb:*
           Resource:
             - !GetAtt ConnectionTable.Arn
+        - Effect: Allow
+          Action:
+            - s3:*
+          Resource:
+            - !Sub "arn:aws:s3:::${DataBucket}"
+            - !Sub "arn:aws:s3:::${DataBucket}/*"
+  iamManagedPolicies:
+    - arn:aws:iam::aws:policy/AmazonAthenaFullAccess
   
   environment:
     WEBSOCKET_ENDPOINT: !Sub "wss://${WebsocketsApi}.execute-api.${aws:region}.amazonaws.com/${sls:stage}"
@@ -70,6 +78,7 @@ custom:
 functions:
   handleUpdate:
     handler: handler.handleUpdate
+    timeout: 10
     events:
       - eventBridge: # Batch Update Timing
           enabled: true
@@ -80,11 +89,11 @@ functions:
               - Glue Data Catalog Table State Change
             detail:
               tableName:
-                - processed-data2
-              typeofChange:
+                - raw
+              typeOfChange:
                 - UpdateTable
               databaseName:
-                - !Ref GlueDatabase
+                - !Ref GlueDatabase            
 
   connect:
     handler: handler.connect
@@ -102,8 +111,20 @@ resources:
   Resources:
     DataBucket:
       Type: AWS::S3::Bucket
+      DependsOn:
+        - S3NotificationSQS
+        - S3NotificationQueuePolicy
       Properties:
         BucketName: ${self:custom.DATA_BUCKET}
+        NotificationConfiguration:
+          QueueConfigurations:
+            - Event: s3:ObjectCreated:*
+              Filter:
+                S3Key:
+                  Rules:
+                    - Name: prefix
+                      Value: data/raw/
+              Queue: !GetAtt S3NotificationSQS.Arn
     DataStream:
       Type: AWS::Kinesis::Stream
       Properties:
@@ -183,6 +204,7 @@ resources:
                 Service: glue.amazonaws.com
         ManagedPolicyArns:
           - arn:aws:iam::aws:policy/AmazonS3FullAccess
+          - arn:aws:iam::aws:policy/AmazonSQSFullAccess
           - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
     GlueDatabase:
       Type: AWS::Glue::Database
@@ -199,6 +221,9 @@ resources:
         Targets:
           S3Targets:
             - Path: !Sub "s3://${DataBucket}/data/"
+              EventQueueArn: !GetAtt S3NotificationSQS.Arn
+        RecrawlPolicy:
+          RecrawlBehavior: CRAWL_EVENT_MODE
         SchemaChangePolicy:
           UpdateBehavior: UPDATE_IN_DATABASE
           DeleteBehavior: LOG
@@ -318,11 +343,50 @@ resources:
               Action:
                 - s3:GetObject
               Resource: !Sub "arn:aws:s3:::${WebSiteBucket}/*"
-
+    S3NotificationSQS:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: firehose-s3-raw-sqs
+        DelaySeconds: 0
+        MaximumMessageSize: 262144
+        MessageRetentionPeriod: 864000
+        ReceiveMessageWaitTimeSeconds: 0
+        VisibilityTimeout: 90
+    S3NotificationQueuePolicy:
+      Type: AWS::SQS::QueuePolicy
+      DependsOn:
+        - S3NotificationSQS
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: "s3.amazonaws.com"
+              Action:
+                - SQS:SendMessage
+              Resource: !GetAtt S3NotificationSQS.Arn
+              Condition:
+                ArnLike:
+                  aws:SourceArn: "arn:aws:s3:*:*:${self:custom.DATA_BUCKET}"
+                StringEquals:
+                  aws:SourceAccount: ${aws:accountId}
+            - Effect: Allow
+              Action:
+                - sqs:*
+              Principal:
+                AWS: !GetAtt GlueRole.Arn
+              Resource: !GetAtt S3NotificationSQS.Arn
+        Queues:
+          - !Ref S3NotificationSQS
+  
   Outputs:
     KinesisDataGeneratorUrl:
       Description: "KinesisDataGeneratorUrl"
       Value: !GetAtt kinesisdatagenerator.Outputs.KinesisDataGeneratorUrl
+    StaticWebSiteUrl:
+      Description: "S3 Static Web Site URL"
+      Value: ${self:custom.WEBSITE_ORIGIN}
 
 plugins:
   - serverless-aws-nested-stacks
