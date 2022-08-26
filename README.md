@@ -16,7 +16,7 @@ Kinesis Data Streamで受けて、FirehoseとKinesis Data Analyticsの両方にP
 
 1. 下記を実行する。
     ```bash
-    git clone https://github.com/maskinoshita/sls-aws-on-analytics-revised.git`
+    git clone https://github.com/maskinoshita/sls-aws-on-analytics.git`
     cd sls-aws-on-analytics-revised
     npm install
     ```
