@@ -23,7 +23,8 @@ Kinesis Data Streamで受けて、FirehoseとKinesis Data Analyticsの両方にP
 
 # Ingest and Store
 
-1. `git merge 1-IngestAndStore`
+1. `git merge origin/1-IngestAndStore`
+2. `npm install`
 2. `serverless.xml`の`UNIQ_PREFIX`を編集する
 3. `sls deploy`
 4. `sls info --verbose`を押し、`KinesisDataGeneratorUrl`に表示されたURLにブラウザでアクセスする。
@@ -54,8 +55,9 @@ Kinesis Data Streamで受けて、FirehoseとKinesis Data Analyticsの両方にP
 
 # Catalog Data
 
-1. `git merge 2-CatalogData`
+1. `git merge origin/2-CatalogData`
 2. `sls deploy`
+    * Firehoseのアップデートに失敗する場合は、`DeliveryStreamName`に適当な文字列を追加して、再度`sls deploy`を実行してください。
 3. [Glueコンソール](https://ap-northeast-1.console.aws.amazon.com/glue/home?region=ap-northeast-1)に行き、左のペインから、`Crawlers`を選択。`AnalyticsworkshopCrawler`を選択し、`クローラの実行`を行う。
 ![](images/execute-crawler.png)
 しばらく時間がかかるので、待つ。完了すると、上部に下記のようなメッセージが表示される。
@@ -75,7 +77,9 @@ Kinesis Data Streamで受けて、FirehoseとKinesis Data Analyticsの両方にP
 
 SageMaker notebookを利用して、インタラクティブにAWS Glue(Spark)を利用する方法を紹介する。
 
-1. `git merge 3-TransformDataWithAWS`
+1. `git merge origin/3-TransformDataWithAWS`
+2. `sls deploy`
+    * かなり時間かかるので注意
 2. [Glueコンソール](https://ap-northeast-1.console.aws.amazon.com/glue/home?region=ap-northeast-1)に行き、左ペインから`Notebooks(legacy)`を選択する。`aws-glue-workshop-notebook`のリンクを開き、表示される画面から`開く`を押す。
 ![ノートブックを開く](images/open-notebook.png)
 3. ノートブック上から、`Upload`を押し、リポジトリ内の`data/resource/analytics-workshop-notebook.ipynb`をアップロードする。
@@ -129,6 +133,10 @@ SageMaker notebookを利用して、インタラクティブにAWS Glue(Spark)�
         * Format: Parquet
         * Compression Type: Snappy
         * S3 Target Location: s3://XXXXX/data/processed-data2/
+        * Data Catalog update options:
+            - Create a table in the Data Catalog and on subsequent runs, update the schema and add new partitions
+        * Database: analyticsworkshopdb
+        * Table name: processed-data2
         * ![](images/s3target_config.png)
     6. 画面上部の`Job details`を選択する
         * Name: AnalyticsOnAWS-GlueStudio
@@ -208,9 +216,9 @@ SageMaker notebookを利用して、インタラクティブにAWS Glue(Spark)�
 
 see: https://docs.aws.amazon.com/ja_jp/kinesisanalytics/latest/dev/how-it-works.html
 
-1. `git merge 4-AnalyzeWithKDA`
+1. `git merge origin/4-AnalyzeWithKDA`
 2. `sls deploy`
-3. [Kinesis Analyticsコンソール]()を開く
+3. [Kinesis Analyticsコンソール](https://ap-northeast-1.console.aws.amazon.com/kinesisanalytics/home?region=ap-northeast-1)を開く
 4. `Studio`タブで準備完了になっているノートブックを実行する。注意が出るのでOKを押す。
 5. `Apache Zeppelinで開く`を押す
 6. `Create new note`を押す
@@ -259,6 +267,27 @@ see: https://docs.aws.amazon.com/ja_jp/kinesisanalytics/latest/dev/how-it-works.
     - Lambda
         - ストリームデータが来ない場合、インフラコスト0
         - コールドスタートによる影響で、低スループットかつ高レイテンシ
+
+# Clean up
+
+手動で作成したリソースは`sls remove`で消えないので手動で削除する
+
+1. `sls remove`
+2. `bash nested-stacks/clean-kinesis-data-generator.sh`
+    - cognito userpool/identity poolを削除する
+3. 手動削除
+    * [Glue Studio Jobs](https://ap-northeast-1.console.aws.amazon.com/gluestudio/home?region=ap-northeast-1#/jobs)
+        - `AnalyticsOnAWS-GlueStudio`にチェックを入れて、Actions->Delete Job(s)
+    * [Glue DataBrew Projects](https://console.aws.amazon.com/databrew/home?region=ap-northeast-1#projects)
+        - `AnalyticsOnAWS-GlueDataBrew`にチェックを入れて、アクション->削除
+            - アタッチされたレシビを削除にチェック
+            - 削除を押す
+    * [Glue DataBrew Dataset](https://console.aws.amazon.com/databrew/home?region=ap-northeast-1#datasets)
+        - 全てのデータセットにチェックを入れて、アクション->削除
+    * [Glue DataBrew Profile](https://console.aws.amazon.com/databrew/home?region=ap-northeast-1#jobs?tab=profile)
+        - ` raw-dataset profile job`にチェックをいれて、アクション->削除
+    * [IAM](https://console.aws.amazon.com/iam/home?region=ap-northeast-1#/roles)
+        - `AWSGlueDataBrewServiceRole-*`
 
 # Appendix
 
